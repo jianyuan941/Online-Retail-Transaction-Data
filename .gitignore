@@ -40,7 +40,7 @@ vignettes/*.pdf
 .Renviron
 
 # Ignore file
-"R file/"
+R file/
 
 # translation temp files
 po/*~
