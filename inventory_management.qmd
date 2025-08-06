@@ -1,0 +1,69 @@
+---
+title: "inventory management"
+format: html
+---
+
+```{r}
+#| echo: false
+knitr::knit_child("backend.qmd")
+```
+
+# Sales per day
+
+```{r}
+
+total_quantity_sold_per_month <- 
+  read_file("list_of_goods_sold.rds") %>% 
+  group_by(month_year, StockCode) %>% 
+  mutate(
+    total_sold_quantity = sum(Quantity)
+  ) %>% 
+  ungroup %>% 
+  select(StockCode, month_year, total_sold_quantity) %>% 
+  distinct() %>% 
+  arrange(StockCode)
+
+
+#Reorder_point = (average daily demand * lead time) + Safety Stock
+#safety_stock = Z * daily_demand_sd * sqrt(lead_time_days)
+#max_stock_level = monthly_demand + safety_stock
+
+#considering a postage delay of 1 month. Set buffer period of 5 days 
+#lead time day = 5 days
+#daily average usage 
+#stock able to cover 95% of the time: z score = 1.65
+
+z <- qnorm(0.95)
+
+total_quantity_sold_per_month %>% 
+  group_by(StockCode) %>% 
+  mutate(
+    average_sold_per_month = round(sum(total_sold_quantity)/n(),4),
+    average_sold_per_day = round(average_sold_per_month/30,4),
+    safety_stock = z*average_sold_per_day* sqrt(5),
+    reorder_point = round((average_sold_per_day *5)+ safety_stock,0),
+    max_stock_level = round(average_sold_per_month + safety_stock,0)
+  ) %>% 
+  save_function(., name = "reorder_level_per_stockcode", type = "rds", return = T) %>% 
+  select(StockCode, reorder_point, max_stock_level) %>% 
+  distinct() %>% 
+  result_displayv2(., 5,"")
+
+
+
+```
+
+```{r}
+#considering some of the Stockcode has quantity sold less than 10 per month.
+#it should be filter out to consider whether to drop the product
+#Product that sold less than 5 units per month as per below
+
+read_file("reorder_level_per_stockcode.rds") %>% 
+  filter(average_sold_per_month <= 5) %>% 
+  mutate(
+    average_sold_per_month = round(average_sold_per_month,0)
+  ) %>% 
+  select(StockCode, average_sold_per_month) %>% 
+  distinct() %>% 
+  result_displayv2(.,5,"")
+```

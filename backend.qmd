@@ -1,0 +1,361 @@
+---
+format: html
+engin: shiny
+---
+
+```{r}
+#| include: false
+source("R file\\01-function.R")
+source("R file\\custom calculation.R")
+source("R file\\02-descriptive_analysis.R")
+source("R file\\03-plot.R")
+
+read_file(data_base = "online_retail.csv")
+```
+
+# Data Quality Testing
+
+## Data Overview
+
+```{r}
+#Summary
+skim(online_retail)
+```
+
+## Sales Checking
+
+### Monthly Revenue from Dec 2010 to Dec 2011
+
+```{r}
+sales_checking <- online_retail %>%
+  date_format(.,InvoiceDate) %>% 
+  mutate(month_year = format(InvoiceDate, "%b %Y"))
+
+sales_checking_1 <- sales_checking %>% 
+    group_by(month_year) %>% 
+  mutate(
+    quantity_sold = sum(Quantity, na.rm = T),
+    n = n(),
+    Avg_unit_price = sum(UnitPrice, na.rm = T)/n,
+    total_revenue = sum(UnitPrice*Quantity))%>% 
+    ungroup() %>% 
+    select(month_year, quantity_sold, Avg_unit_price, total_revenue) %>% 
+    distinct() 
+
+sales_checking_1%>% 
+  month_year_range(.,month_year,"2010-12-01", "2011-12-01") %>% 
+  linechart_gg(.,month_year, total_revenue) +
+    theme_function(
+      margin_plot = margin(10,20,10,10),
+      margin_x_title = margin(t=10),
+      x_label_position = element_text(angle = 45, vjust = 0.5),
+      margin_y_title = margin(r=10)
+    )+ 
+    labs(
+      x = "Month_Year",
+      y = "Total Revenue",
+      title = "Monthly Revenue from Dec 2010 to Dec 2011"
+    )+
+  geom_text_function(
+    label = scales::comma(total_revenue), 
+    vjust = -0.8
+  )+
+    scale_y_continuous_function(0,2000000)+
+    scale_x_continuous_function(0.1,0.1)
+
+
+```
+
+Scatter plot show trend:
+
+1.  Sales drop from Dec 2010 to Feb 2011
+2.  Sales spike up in March 2011
+3.  Sales gradually increase from May 2011 to Nov 2011
+4.  Sales drop again in the Dec 2011
+
+### Descriptive Analysis on Monthly Revenue
+
+```{r}
+des_analysis(
+  data_base = sales_checking_1,
+  x = total_revenue
+)
+```
+
+Descriptive Analysis shows:
+
+1.  average monthly sales is 749,827.
+2.  The upper 25% of the data includes months of Oct 2011 and Nov 2011
+3.  The last bottom 3 months incude months of Feb 2011, Apr 2011 and Dec 2011
+
+### Boxplot for Sales to Demonstrate Risk
+
+```{r}
+sales_checking_1 %>% 
+  boxplot_gg(total_revenue,
+         upper_outliner = 1032392,
+         bottom_outliner = 276565)+
+    labs(
+    title = "Distribution of Total Revenue",
+    y = "Total Revenue",
+    x = NULL
+  ) +
+  geom_text_function(
+    label = ifelse(outliner_checker,
+                   paste0(month_year," - ",scales::comma(total_revenue))
+                   ,""),
+    vjust = 1
+  )+
+  theme_function(
+    margin_y_title = margin(r=20),
+  )+
+  scale_y_continuous_function(0,1500000,M)
+  
+```
+
+Boxplot shows:
+
+1.  the gap between bottom 25% to median is smaller than the gap from median to top 25%.
+
+## Data Quality Problem Held within Quantity Column
+
+### Unusual Negative value in Quantity Column
+
+```{r}
+sales_checking %>% 
+  filter(Quantity <=0) %>%
+  group_by(month_year,StockCode) %>% 
+  mutate(
+    neg_stock_per_month = sum(Quantity)
+    ) %>% 
+  ungroup %>% 
+  group_by(StockCode) %>% 
+  mutate(
+    total_neg_stock = sum(Quantity)
+  ) %>% 
+  ungroup %>% 
+  select(month_year,StockCode, neg_stock_per_month, total_neg_stock) %>%
+  distinct() %>% 
+  result_displayv2(.,10,"")
+
+```
+
+The Table above shows monthly `negative quantity sold` and `total negative quantity sold` per product.
+
+This data patten raised concern:
+
+1\. Is negative stock sold same as stock return?
+
+2\. Why negative stock can be accumulate more than thousands units.
+
+3\. Is this represent error in POST system?
+
+### Descriptive Analysis per Product per Month
+
+```{r}
+sales_checking %>% 
+  filter(month_year == "Dec 2010") %>% 
+  des_analysis_dataframe(
+    data_base =.,
+    group = StockCode,
+    x = UnitPrice,
+    f = Quantity,
+    included_new_db = "sales_checking_v2",
+    checking = T
+  )
+## need to check analyze quantity with negative value
+
+
+#1. compare mean vs median filter(mean/median >= 1.1)
+trim_outliner <- function(
+  data_base = NULL,  
+  threshold = NULL,
+  check_skew = F,
+  check_skew_unique = F,
+  page = NULL,
+  checking = F){
+  
+  if(check_skew == F){
+    
+    if(checking == T){
+      calculation <- "Method - 1"
+    }
+    
+    df<- data_base %>% 
+        filter((mean/median)>threshold) 
+  }
+  
+  if(check_skew == T){
+    
+    if(checking == T){
+      calculation <- "Method - 2"
+    }
+    ##if skew between -0.5 to 0.5 approximately symmetric
+    ##if skew between -1 and -0.5 or 0.5 and 1 moderately skewed
+    ##if skew less than -1 and more than 1 then strongly skewed
+      
+    df<- data_base %>% 
+          mutate(
+            skewness= 3*(mean - median)/sd
+          ) 
+    
+      if(check_skew_unique == T){
+        return(
+          result_displayv2(
+            data.frame(
+              unique(df$skewness)
+            ),
+            5,
+            ""
+          )
+        )
+      }
+  }
+  #display result
+  if(as.character(enquo(page)[2])=="NULL"){
+    page = 5
+  }
+  df %>% result_displayv2(.,page,"")
+  
+}
+
+#find out product not affected by outliner
+sales_checking_v2  
+trim_outliner(
+  data_base = sales_checking_v2,
+  threshold = 1.5,
+  check_skew = T,
+)  
+
+result_displayv2(
+  data.frame(unique(online_retail$StockCode)),
+  10,
+  ""
+)
+
+```
+
+### Quantity sold by Product code
+
+```{r}
+#Derived total unit sold base on product code  
+Group_category_to_summary(online_retail, StockCode, Quantity,"Quantity_to_sales")
+```
+
+Data shows unusual pattern:
+
+1.  Products have negative quantity sold.
+2.  Some products have same product code with minor different in capitalization.
+3.  Products are coded with only "S", "M", "L"
+
+### Descriptive Statistic for total Quantity sold
+
+```{r}
+des_analysis(
+  data_base = Quantity_to_sales, 
+  x = total_quantity)
+```
+
+Result from Descriptive Analysis shows:
+
+1.  Not All product is perform well in the organization.
+2.  There are about 431 products perform extraordinary good in the market.
+
+### Product Code that performed extraordinary well in the market
+
+```{r}
+Quantity_to_sales %>%      
+  filter(total_quantity>3150.75) %>%     
+  arrange(total_quantity) %>%      
+  result_displayv2(.,4,"")
+```
+
+### Product Code that perform extreme worst in the market
+
+```{r}
+Quantity_to_sales %>%      
+  filter(total_quantity<0) %>%     
+  arrange(total_quantity) %>%      
+  result_displayv2(.,4,"")
+```
+
+### 
+
+## Consistency test in Description
+
+```{r}
+#Check for Description inconsistent base on ID
+Check_description_base_on_id(online_retail, StockCode, Description,"consistency_test")
+```
+
+Result shows that [Description is not consistent for every product code]{.underline}. The greater the number of Description Count, the more the different acronym assigned to single product code.
+
+## Customer Analysis
+
+### Customer listing
+
+```{r}
+online_retail %>% 
+  select(CustomerID, Country) %>% 
+  group_by(CustomerID) %>% 
+  mutate(time_of_purchase = n()) %>%
+  ungroup %>% 
+  distinct() %>% 
+  result_displayv2(.,10,"Customer_purchase")
+```
+
+Data show unusual pattern:
+
+1.  Some transaction without is done without CustomerID
+
+### Descriptive Analysis for Customer
+
+```{r}
+Customer_purchase_1<- Customer_purchase %>% 
+  select(CustomerID,time_of_purchase) %>% 
+  drop_na()
+
+des_analysis(data_base = Customer_purchase_1, x =time_of_purchase)
+```
+
+### Customer Distribution by Locations
+
+```{r}
+Customer_purchase %>% 
+  select(Country) %>% 
+  ranking_large_small(.,Country,"")+
+  theme_bw()+
+  theme(legend.position = "none")+
+  scale_y_continuous(expand = c(0,0),
+                     limits = c(0,4000))+
+  labs(
+    title = "Customer Distribtion by Country"
+  )
+```
+
+Data above shows:
+
+1.  Company sales is mainly focus in UK, Germany and France.
+2.  Huge potential of expanding business abroad
+
+### Purchase behavior listing
+
+```{r}
+online_retail %>% 
+  drop_na() %>%
+  filter(Quantity >0) %>% 
+  date_format(.,InvoiceDate) %>% 
+  mutate(month_year = format(InvoiceDate,"%b %Y")) %>% 
+  group_by(CustomerID) %>% 
+  mutate(
+    'total_purchase (unit)' = sum(Quantity),
+    'Average_purchase (unit)' = round(sum(Quantity)/13,2)
+  ) %>% 
+  select(CustomerID, 'Average_purchase (unit)','total_purchase (unit)') %>% 
+  distinct() %>% 
+  result_displayv2(.,10, "Purchase_behavior_listing")
+```
+
+```{r}
+des_analysis(data_base = Purchase_behavior_listing, x =`total_purchase (unit)`)
+```

@@ -1,0 +1,374 @@
+---
+title: "fraud detection"
+format: html
+---
+
+```{r}
+#| include: false
+
+
+knitr::knit_child("backend.qmd")
+
+```
+
+```{r}
+
+#this is to convert adjust date to allow categorize
+online_retail <- 
+  read_file(data_base = "online_retail.csv") %>% 
+  date_format(.,InvoiceDate) %>% 
+  mutate(month_year = format(InvoiceDate, "%b %Y"))
+
+```
+
+Overview sales data
+
+```{r}
+
+des_analysis_dataframe_custom(
+  data_base = online_retail,
+  group = month_year, #group by month_year, StockCode
+  x = UnitPrice,
+  f = Quantity,
+  accept_negative_x = F,
+  page = 5,
+  included_new_db = "Pre_Analyse_Sales_Transaction",
+  cross_qmd =T
+)
+#This calculation not accept:
+#1. Quantity < 0
+#2. Unit Price < 0 
+```
+
+### Abnormal Transaction
+
+```{r}
+#To see if any sales transaction fit following criteria
+#1. UnitPrice < 0
+#2. Quantity < 0
+
+online_retail_exclude_data <- online_retail %>% 
+  filter(UnitPrice<0|Quantity<0) %>%
+  select(StockCode, month_year, UnitPrice, Quantity, InvoiceNo, CustomerID,Description) 
+
+result_displayv2(online_retail_exclude_data,5,"")
+```
+
+#### Abnormal Transaction: Return stuck
+
+```{r}
+online_retail_exclude_data %>%
+  filter(str_starts(InvoiceNo,"C")) %>% 
+  save_function(
+    data_base = .,
+    name = sales_return,
+    type = "rds"
+  )
+
+
+```
+
+#### Abnormal Transaction: Return stock without proper procedure
+
+```{r}
+#check if this abnormal transaction has customerID
+Ab_Transaction <- online_retail_exclude_data %>%
+  filter(!str_starts(InvoiceNo,"C")) %>% 
+  mutate(
+    category = case_when(
+      str_detect(Description, regex("throw",ignore_case = TRUE)) ~ "Thrown",
+      str_detect(Description, regex("give away|given", ignore_case = TRUE)) ~ "Give Away",
+      str_detect(Description, regex("showroom|dotcom|ebay|sample|display|amazon|test",ignore_case = TRUE)) ~ "Business Purpose",
+      str_detect(Description, regex("wrongly|barcode|wrongly code|wrongly mark|wrong code|wrong barcode|wrongly mrk|wrongly sold|adjust", ignore_case = TRUE))~"error",
+      str_detect(Description, regex("\\?|MIA|missing|lost|can't find|Not rcvd in 10/11/2010 delivery|mystery! Only ever imported 1800",ignore_case = TRUE)) ~ "Question mark",
+      Description == "" ~ "Question mark",
+      str_detect(Description, regex("smash|crush|damage|rusty|broken|damage|wet|mouldy|dagamed|faulty|break|destroyed|crack",ignore_case =TRUE)) ~"Damaged",
+      
+      TRUE ~ "Others"
+    )
+  ) 
+result_displayv2(Ab_Transaction,5,"")
+
+
+Ab_Transaction_v2 <- Ab_Transaction %>% 
+      group_by(month_year,category) %>% 
+      mutate(
+        total = abs(sum(Quantity))
+      ) %>% 
+      select(month_year,category, total) %>%
+      filter(category == "Thrown"|
+             category == "Give Away"|
+             category == "Question mark"|
+             category =="Damaged") %>% 
+      ungroup() %>% 
+      unique()
+
+##base on calculation business has significant amount of:
+#1. damage stock
+#2. thrown 
+#3. Question mark
+#4. give away
+
+#Total stock return with C
+```
+
+#### Line graph for Lost stock
+
+```{r}
+Ab_Transaction_v2 %>% 
+  filter(category == "Question mark") %>% 
+  month_year_range(.,month_year,"2010-12-01","2011-12-01") %>% 
+  linechart_gg(.,month_year, total)+
+  labs(
+    title = "Total lost stock for period Dec 2010 to Dec 2011"
+  )+
+  scale_y_continuous_function(
+    start_range = 0,
+    end_range = 17000,
+    suffix = K
+  )+
+  theme_function(
+    x_label_position = element_text(angle = 45, vjust = 0.5),
+    margin_y_title = margin(r=10),
+    margin_x_title = margin(t=10)
+  )+
+  geom_text_function(
+    repel = T,
+    label = total,
+    vjust = -0.8
+  )
+#total stock lost from Dec 2010 to Dec 2011 as per below:
+#Stock lost happened without Invoice No
+```
+
+#### Lost good by category
+
+```{r}
+#| echo: false
+  Ab_Transaction_v2_lost_good <- Ab_Transaction %>% 
+    filter(category == "Question mark") %>% 
+    group_by(StockCode) %>% 
+    mutate(
+      time = n(),
+      total = abs(sum(Quantity))
+    ) %>% 
+    select(-UnitPrice, -CustomerID, -Description, -category) %>% 
+    ungroup() %>% 
+    unique() 
+
+##Base on calculation show there is recurring lost good for product:
+  #1. analyse show there is a recuring trend for certain product code
+  #2. maximum recuring trend for stock as per below
+#Ab_Transaction_v2_lost_good %>% result_displayv2(.,5,"")
+  #stock lost cover total 994 products in the company.
+  #the recuring time vary from 1 to 3 times
+
+### lost product base on category============================================
+level_lost_ranking <- c(
+  "NA",
+  "wear",
+  "toy",
+  "house decoration",
+  "kitchen",
+  "stationary",
+  "Misc"
+  )
+  
+merged(
+  dataset1 = Ab_Transaction_v2_lost_good,
+  dataset2 = read_file("category.rds"), #dataset from sales.qmd
+  col_name = StockCode)%>%
+  group_by(category) %>% 
+  mutate(
+    total_by_category = abs(sum(total))
+  ) %>% 
+  ungroup()%>%
+  select(category, total_by_category) %>% 
+  distinct() %>% 
+  mutate(
+    category = case_when(
+      is.na(category)~"NA",
+      TRUE ~ category
+    ),
+    category = factor(category , levels = level_lost_ranking, order = T)
+  ) %>% 
+  barchart_ggv2(., category, total_by_category, fill_color = category)+
+  coord_flip()+
+  labs(
+    title = "Lost Product by category"
+  )+
+  theme_function(legend = F)+
+  geom_text_function(repel = F, vjust = 0.5, hjust = -0.25, label = comma(total_by_category))+
+  scale_y_continuous_function(0, 45000, suffix = k)
+
+#still notice about 1,035 unit with unknown product code. further checking is needed for this category
+
+```
+
+#### Line graph for thrown stock
+
+```{r}
+Ab_Transaction_v2 %>%
+  filter(category == "Thrown") %>%
+month_year_range(.,month_year,"2010-12-01","2011-12-01") %>% 
+    linechart_gg(.,month_year, total)+
+  scale_y_continuous_function(
+    start_range = 0,
+    end_range = 30000,
+    suffix = K
+  )+
+  labs(
+    title = "Totol thrown stock for period Dec 2010 to Dec 2011"
+  )+
+  theme_function(
+    x_label_position = element_text(angle = 45, vjust = 0.5),
+    margin_y_title = margin(r=10),
+    margin_x_title = margin(t=10)
+  )+
+  geom_text_function(
+    repel = T,
+    label = total,
+    vjust = -0.8
+  )
+
+  
+
+##why the stock is being thrown away. Is proper procedure implied? Is inventory is properly managed in time?
+```
+
+```{r}
+Ab_Transaction %>% 
+    filter(category == "Thrown") %>% 
+    group_by(StockCode) %>% 
+    mutate(
+      time = n(),
+      total = abs(sum(Quantity))
+    ) %>% 
+  save_function(., name = "thrown", return = T) %>% 
+    select(-UnitPrice, -CustomerID, -Description, -category) %>% 
+    ungroup() %>% 
+    unique() %>% 
+  #merged dataset
+  merged(
+    dataset1 = .,
+    dataset2 = category,
+    col_name = StockCode) %>%
+  group_by(category) %>% 
+  mutate(
+    total_by_category = abs(sum(Quantity)) 
+  ) %>%
+  ungroup %>% 
+  select(category, total_by_category) %>% 
+  distinct() %>% 
+  #ggplot
+    ggplot(
+    aes(
+      x = category,
+      y = total_by_category,
+      fill = category
+    )
+  )+
+  geom_col()+
+  theme_ipsum(base_family = "")+
+  coord_flip()+
+  labs(
+    title = "Thrown Product by category"
+  )+
+    geom_text(
+    aes(
+      label = scales::comma(total_by_category)
+    ),
+    vjust = 0.5,
+    hjust = -0.25
+  )+
+  theme(
+    legend.position = "none"
+  )+
+  scale_y_continuous(
+    labels = label_number(scale = 1e-3, suffix = "K"),
+    limits = c(0,35000)
+  )
+```
+
+#### Line graph for thrown stock
+
+```{r}
+Ab_Transaction_v2 %>% 
+  filter(category == "Damaged") %>% 
+  month_year_range(.,month_year,"2010-12-01","2011-12-01") %>% 
+  linechart_gg(.,month_year, total)+
+  scale_y_continuous_function(
+    start_range = 0,
+    end_range = 30000,
+    suffix = K
+  )+
+  labs(
+    title = "Totol Damaged stock for period Dec 2010 to Dec 2011"
+  )+
+  theme_function(
+    x_label_position = element_text(angle = 45, vjust = 0.5),
+    margin_y_title = margin(r=10),
+    margin_x_title = margin(t=10)
+  )+
+  geom_text_function(
+    label = total,
+    vjust = -0.8
+  )
+```
+
+```{r}
+
+Ab_Transaction %>% 
+    filter(category == "Damaged") %>% 
+    group_by(StockCode) %>% 
+    mutate(
+      time = n(),
+      total = abs(sum(Quantity))
+    ) %>% 
+  save_function(., name = "Damaged", return = T) %>% 
+    select(-UnitPrice, -CustomerID, -Description, -category) %>% 
+    ungroup() %>% 
+    unique() %>% 
+  #merged dataset
+  merged(
+    dataset1 = .,
+    dataset2 = category,
+    col_name = StockCode) %>%
+  group_by(category) %>% 
+  mutate(
+    total_by_category = abs(sum(Quantity)) 
+  ) %>%
+  ungroup %>% 
+  select(category, total_by_category) %>% 
+  distinct() %>% 
+  #ggplot
+    ggplot(
+    aes(
+      x = category,
+      y = total_by_category,
+      fill = category
+    )
+  )+
+  geom_col()+
+  theme_ipsum(base_family = "")+
+  coord_flip()+
+  labs(
+    title = "Damaged Product by category"
+  )+
+    geom_text(
+    aes(
+      label = scales::comma(total_by_category)
+    ),
+    vjust = 0.5,
+    hjust = -0.25
+  )+
+  theme(
+    legend.position = "none"
+  )+
+  scale_y_continuous(
+    labels = label_number(scale = 1e-3, suffix = "K"),
+    limits = c(0,15000)
+  )
+
+```
+

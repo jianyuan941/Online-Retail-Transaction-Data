@@ -1,0 +1,23 @@
+{
+  "index.qmd": {
+    "index.html": "ba16cd9d"
+  },
+  "backend.qmd": {
+    "backend.html": "d6cd517e"
+  },
+  "fraud detection.qmd": {
+    "fraud detection.html": "94d795ef"
+  },
+  "sales.qmd": {
+    "sales.html": "929a419c"
+  },
+  "inventory management.qmd": {
+    "inventory management.html": "e94abd4f"
+  },
+  "fraud_detection.qmd": {
+    "fraud_detection.html": "1792b75d"
+  },
+  "inventory_management.qmd": {
+    "inventory_management.html": "51b5e71f"
+  }
+}

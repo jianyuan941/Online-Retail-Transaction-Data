@@ -1,0 +1,557 @@
+---
+title: "sales"
+format: html
+---
+
+```{r}
+#| include: false
+
+knitr::knit_child("backend.qmd")
+
+```
+
+# Analysis of Sales Data
+
+```{r}
+#| include: false
+#Calculation from fraud detection.qmd
+
+categoried_sales_transaction <- 
+  read_file(data_base = "Pre_Analyse_Sales_Transaction.rds") %>% 
+  mutate(category = case_when(
+         str_detect(Description,regex("babushka nesting box|playhouse|DOLL|JIGSAW BLOCK|ALPHABET BLOCK|CARD GAME|game|Stress Ball|PUZZLES|WOODEN BOX OF DOMINOES|3 bird light pink feather|MINI JIGSAW SPACEBOY|MINI JIGSAW CIRCUS PARADE|TEDDY BEAR|MINI PAINT SET VINTAGE|piggy bank|MONEY BANK|toy|MODELLING CLAY|SOCK PUPPET|KNITTING NANCY|GEISHA GIRL|SPORTING FUN|SNAKES & LADDERS|SEASIDE BUCKET|GLIDERS|MONEY BOX|FLYING DISC|FELTCRAFT|SOLDIER SKITTLES|SPINNING TOP|DRAWING SLATE|PICTURE DOMINOES|SKIPPING ROPE|DINOSAUR|HELICOPTER|BINGO SET|BUNNIES|CRAFT",ignore_case = T)) ~"toy",
+         str_detect(Description,regex("red woolly|HAND WARMER|cap|purse| hat |SCARF|FLANNEL|light chain|earring|SLIPPER SHOES| POLKADOT WRAP|RAIN MAC|baby bib|PARIS FASHION|bracelet|necklace|HAIR GRIP|ROSEBUD RING|RAIN PONCHO|bangle|HEART FILIGREE DOVE|HAIR GRIP|BOBBLES|HEART FILIGREE DOVE|HAIR CLIP",ignore_case = T)) ~"wear",
+         str_detect(Description,regex("MUG COSY|TEASPOON|MILK JUG|FRIDGE MAGNETS|cake stand|cup|dish|jar|tea|glass| towel|FRYING PAN| PAN |placemat|SPOON|snack box|lunch box|TOADSTOOL|apron|MUG|bottle|cake case|baking|COOKIE CUTTERS|COOKIE CUTTER| pot |KITCHEN SCALES|BOW|cutlery|EGG HOLDER|COASTER|napkins|lable| plate|tea set|FELT EGG COSY|PLACEMATS|waste bin|POPCORN HOLDER|CAKESTAND|ORANGE SQUEEZER|CAKE TIN|food cover|rolling pin|COOKING SET|OVEN GLOVE|TRINKET POT|NAPKIN|COFFEE SET|placemat|LADLE|MEASURING JUG|CHOPPING BOARD|BREAKFAST SET|EGG BASKET|CHOPSTICKS|SUGAR TONG",ignore_case = T)) ~"kitchen",  
+str_detect(Description,regex("bag| bin |tool set|jumbo shopper|container|TISSUES|RETROSPOT WRAP|sewing box|DRAWER KNOB|clip line|storage cube|CLOTHES PEGS|umbrella|tray|HOOK |FIRST AID KIT|HAIR BAND|rack|THERMOMETER|doorstop|KEY RING|hair comb|EASTER TIN|GROW SET|FLOWER JUG|PHOTO CUB|BEAKERS|PLANT HOLDER|SEWING KIT|LUGGAGE TAG|BATH SPONGE|WICKER|TISSUE BOX|mirror ball|KEEPSAKE BOX|beaker|WOOD LETTERS|TRINKET BOX|mirror|TRELLIS| sign|christmas|decoration|SHOPPING LIST|SOAP HOLDER|WIRE WALL TIDY|INCENSE|BISCUIT TIN|PARTY CONES|HARMONICA|BIRD PANNETONE|holly bell|MATCHES|MINI CASES|SILK PURSE BABUSHKA|DRAWERKNOB|HERB MARKER|TUMBLER|WREATH|WOODEN BLOCK|TRANSFER TATTOOS|PLACE SETTING|BUTTON BOX|HOME SWEET HOME|HANGER|GIFT BOXES|BISCUITS TINS|bucket|flask|TORCH| tin |DAISY PEGS|CHILDS GARDEN|OVAL BOX|POLYESTER FILLER PAD|GARLAND|WATERING CAN",ignore_case = T)) ~"Misc", 
+        str_detect(Description,regex("recipe box|ALARM CLOCK|STICKER|STICKER SHEET|tape|POLITICAL GLOBE|PAPER CHAIN|letter tray|RIBBON|card|PHOTO ALBUM|rubber|WRAP|sharpener|jam making set|BIRTHDAY WRAP|HOLE PUNCH|GIFT WRAP|ORGANISER|book|MAGNETS PACK|envelop|pen|ABSTRACT CIRCLE JOURNAL|PARTY INVITE|CALCULATOR|balloon|CHALKBOARD|ERASERS|BLACK BOARD|CALENDAR|OFFICE TIDY|PASSPORT COVER|SCISSOR| CHALK STICKS|COLOURING SET|RULER|TINSEL REEL|WRITING SET|STATIONERY SET|paper",ignore_case = T)) ~"stationary",   
+        str_detect(Description,regex("lantern|light holder|LAMP|LIGHTBULB|LIGHT HLDR|LIGHT GARLAND|lights|TABLE LIGHT |candle|BIRD ORNAMENT|block word|doormat|PARASOL|coat hanger|CUSHION COVER|SHELF|clock|cabinet|DISCO BALL|curtain| frame|fan|METAL SIGN|DRAWER SIDEBOARD|doorsign|CUSHION|FLYING DUCKS|HANGING DECORATION|LAMPSHADE|SPEAKER|PORCELAIN|DRAWERS| STOOL|BUDDHA HEAD|throw|WALL ART|OIL BURNER|HAMMOCK|vase",ignore_case = T)) ~"house decoration",
+        str_detect(Description,regex("Adjust bad debt|voucher|WALL TIDY|manualSAMPLES|Bank Charges|AMAZON FEE|PACKING CHARGE|ECONOMY HOLIDAY PURSE
+",ignore_case = T)) ~"business",
+        str_detect(Description,regex("CARRIAGE|POSTAGE|Next Day Carriage",ignore_case = T)) ~"transportation cost",
+         TRUE~"Misc"
+
+    
+  )
+)
+
+category <- categoried_sales_transaction %>% 
+  select(StockCode,Description,category) %>%
+  unique()
+
+save_function(data_base = category, type = "rds", return = F)
+
+##issue encouter:
+#1. some description match multiple keyword: top down approach applied
+#2. some keyword with different combination can be very different in category
+#3. some description uncategoried(not mention what is the product)
+```
+
+### Monthly Sales from Dec 2010 to Dec 2011
+
+```{r}
+data_for_sales_graph <- categoried_sales_transaction %>% 
+  filter(!category %in% c("transportation cost","business")) %>% 
+  save_function(., name = "list_of_goods_sold", type = "rds", return = T) %>% 
+  group_by(month_year) %>% 
+  mutate(
+    total_sales = sum(UnitPrice*Quantity)
+  ) %>%
+  ungroup %>% 
+  select(month_year, total_sales, Quantity) %>%
+  distinct() %>% 
+  month_year_range(data=.,col_name = month_year, "2010-12-01", "2011-12-01") 
+
+
+p1<- ggplot(data_for_sales_graph, aes(x = month_year)) +
+  geom_col(aes(y = Quantity, fill = "Quantity"), show.legend = TRUE) +
+  geom_line(aes(y = total_sales/10, color = "Total Sales"), size = 1, group = 1, show.legend = TRUE) + 
+  scale_y_continuous(
+    name = "Quantity",
+    limits = c(0,200000),
+    labels = label_number(scale = 1e-3, suffix = "K"),
+    sec.axis = sec_axis(~ .*10,
+                        name = "Total Sales",
+                        labels = label_number(scale = 1e-6, suffix = "M"))
+  ) +
+  theme_ipsum(base_family = "") +
+  scale_fill_manual(name = "", values = c("Quantity" = "#A8DCAB"))+
+  scale_color_manual(name = "", values = c("Total Sales" = "grey")) +
+    geom_text(
+      aes(
+        y = total_sales / 10, 
+        label = paste0(round(total_sales/1000000,2)," M")
+        ),
+      color = "grey40", 
+      vjust = -0.5, 
+      size = 3) +
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 0.5),
+    legend.position = "bottom",
+    plot.title = element_text(size = 12)
+  )+
+  labs(
+    title = "Overview of Total Sales and Quantity Sold: Dec 2010 - Dec 2011 "
+  )
+p1
+
+
+
+```
+
+```{r}
+
+
+IQR_calculation <- data_for_sales_graph %>% 
+  select(month_year,total_sales) %>% 
+  distinct() %>% 
+  arrange(total_sales)
+
+q <- c(min(IQR_calculation$total_sales),
+       quantile(IQR_calculation$total_sales, probs = c(0.25,0.5,0.75)), 
+       max(IQR_calculation$total_sales))
+
+
+p2 <- data_for_sales_graph %>% 
+  select(month_year, total_sales) %>% 
+  distinct() %>% 
+  ggplot(
+    aes(
+      x = "",
+      y = total_sales
+    )
+  )+
+  geom_boxplot(
+    outlier.shape = NA,
+    fill = custom_green,
+    width = 0.5
+  )+
+  geom_jitter(
+      width =0.1,
+      alpha =0.7,
+      size =2
+  )+
+  labs(
+    title = "Sales Variation Across Months"
+  )+
+    geom_text_repel(
+    aes(
+      label = ifelse(total_sales == q[1],
+                     paste0("lowest point - ",comma(total_sales,accuracy =0.01))
+                     ,"")
+    )
+  )+
+  geom_text_repel(
+    aes(
+      label = ifelse(total_sales == q[2],
+                     paste0("Q1 - ",comma(total_sales,accuracy =0.01))
+                     ,"")
+    )
+  )+
+    geom_text_repel(
+    aes(
+      label = ifelse(total_sales == q[3],
+                     paste0("Q2 - ",comma(total_sales,accuracy =0.01))
+                     ,"")
+    )
+  )+
+    geom_text_repel(
+    aes(
+      label = ifelse(total_sales == q[4],
+                     paste0("Q3 - ",comma(total_sales,accuracy =0.01))
+                     ,"")
+    )
+  )+
+    geom_text_repel(
+    aes(
+      label = ifelse(total_sales == q[5],
+                     paste0("Hightest point - ",comma(total_sales,accuracy =0.01))
+                     ,"")
+    )
+  )+
+  theme_ipsum(base_family = "")+
+  scale_y_continuous_function(
+    suffix = M
+  )+
+  theme_function(
+    title_size = 12
+  )
+
+p2
+```
+
+data_for_sales_graph
+
+1.  data_for_sales_graphGraph above shows business has total revenue 9.58 MIL in calender year 2011.
+2.  Graph above shows total sales is gradually increase from Dec 2010 and reach the peak in Nov 2011.
+3.  Total Sales does not seem to have a positive relationship with Quantity Sold as Quantity Sold increase does not result increment in total Sales. It might caused by either, higher discount for products or product with cheaper price run fast in the month.
+
+## Total Quantity Sold And Stock Return by Category
+
+```{r}
+sold_data<- categoried_sales_transaction %>% 
+  group_by(category) %>% 
+  mutate(
+    total_quantity = sum(Quantity),
+    type = "Sold"
+  ) %>% 
+  select(category,type, total_quantity) %>% 
+  distinct() 
+
+ranking <- c("NA","Apparel","Home & Living","Games & Toys","Stationary","Kitchenware","Misc")
+
+merged(
+  dataset1 = read_file(data_base = "sales_return.rds"),
+  dataset2 = category,
+  col_name = StockCode
+) %>% 
+  filter(!StockCode == "D") %>%  #remove discount
+  save_function(.,name = sales_return_table, type = "NULL", return = T) %>% 
+  group_by(category) %>% 
+  mutate(
+    total_quantity = abs(sum(Quantity)),
+    type = "Return"
+  ) %>% 
+  select(category,type, total_quantity) %>% 
+  distinct() %>% 
+  bind_rows(., sold_data) %>% 
+  filter(!category %in% c("transportation cost","business")) %>% 
+  mutate(
+    category = case_when(
+      is.na(category)~"Misc",
+      category == "house decoration" ~ "Home & Living",
+      category == "kitchen" ~ "Kitchenware",
+      category == "wear" ~ "Apparel",
+      category == "toy" ~ "Games & Toys",
+      category == "stationary" ~ "Stationary",
+      T ~ category
+    ),
+    category = factor(category, levels = ranking, order = T) 
+  ) %>% 
+  save_function(., name = total_quantity_sold_and_stock_return_by_category, type = "rds", return = T) %>% 
+  barchart_ggv2(.,category, total_quantity, fill = type, stack = F)+
+  coord_flip()+
+  labs(
+    title = "Yearly Total Quantity Sold and Sales Return by Category"
+  )+
+  theme_function(title_size = 12)+
+  #geom_text_function(repel = F, vjust = 0.5, hjust = -0.15, stack = F, label = comma(total_quantity)) +
+  scale_y_continuous_function(0,2800000,m)+
+  geom_text_function(repel = F, stack = F, vjust = 0.5, hjust = -0.25, label = comma(total_quantity))
+
+
+
+```
+
+1.  Graph above total sales of the company come from Misc then follow by kitchen and stationary.
+2.  Toy has the highest sales return about 91,882 unit over sales 505,391 unit compare to others category. Further investigation should be carried to find out reason of sales return.
+3.  Excluding Toy, other categories have relative low percentage of sales return. However, it shouldn't be taking lightly and find out reason behind the sales return.
+
+```{r}
+cost_incurred_from_sales_return <- sales_return_table %>% 
+  filter(!category %in% c("transportation cost","business")) %>% 
+  select(-CustomerID, -Description.y) %>% 
+  group_by(StockCode) %>% 
+  mutate(
+    category = case_when(
+      is.na(category) ~ "Misc",
+      category == "house decoration" ~ "Home & Living",
+      category == "kitchen" ~ "Kitchenware",
+      category == "wear" ~ "Apparel",
+      category == "toy" ~ "Games & Toys",
+      category == "stationary" ~ "Stationary",
+      TRUE ~ category
+    )
+  ) %>% 
+  ungroup() %>% 
+  group_by(category) %>% 
+  mutate(
+    total_lost = abs(sum(Quantity*UnitPrice))
+  ) %>% 
+  ungroup() %>%
+  select(category, total_lost) %>% 
+  distinct()
+
+#add new row to show total lost from all sales return  
+cost_incurred_from_sales_return_v2 <- 
+  rbind(cost_incurred_from_sales_return,
+    data.frame(
+    category = "Accumated losses ($)",
+    total_lost = sum(cost_incurred_from_sales_return$total_lost))
+        )
+
+cost_incurred_from_sales_return_v2 %>% 
+  arrange(total_lost) %>% 
+  mutate(
+    total_lost = comma(total_lost, accuracy = 0.01)
+  ) %>% 
+  save_function(., name = losses_from_return_table, type = "rds", return = T) %>% 
+  kbl(caption = "Losses Incurred from Sales Return") %>% 
+  kable_styling()
+```
+
+## Potential lost due to Lost of Goods
+
+```{r}
+#opportunity revenue per stock
+cost_per_unit <- categoried_sales_transaction %>% 
+  select(StockCode,Description, Quantity, category, UnitPrice) %>% 
+  filter(!category %in% c("business","transportation cost")) %>% 
+  group_by(StockCode) %>% 
+  mutate(
+    total_price = sum(UnitPrice*Quantity),
+    total_unit = sum(Quantity),
+    Price_Per_Unit = round(total_price/total_unit,2)
+  ) %>% 
+  select(StockCode, Price_Per_Unit) %>% 
+  unique()
+
+merged(
+    read_file(data_base = "lostgood.rds"),
+    cost_per_unit,
+    col_name = StockCode) %>% 
+    drop_na() %>% 
+    group_by(month_year, category) %>% 
+    mutate(
+      total_lost = sum(total*Price_Per_Unit)
+    ) %>% 
+    select(month_year, category, total_lost) %>% 
+    ungroup() %>% 
+    unique() %>% 
+    filter(category == "stationary") %>% 
+    month_year_range(., month_year, "2010-12-01","2011-12-01") %>%
+      barchart_ggv2(
+      data = .,month_year,total_lost,bar_color = custom_green)+
+    theme_function(
+      title_size = 12,
+      x_label_position = element_text(angle = 45, vjust = 0.5)
+    )+
+    geom_text_function(repel = F, vjust = -0.25, label = comma(total_lost))+
+  labs(
+    title = "Estimate lost for Missing Stationary From Dec 2010 to Dec 2011"
+  )+
+  scale_y_continuous_function(0, 4000,suffix = k)
+
+
+
+```
+
+```{r}
+merged(
+    read_file(data_base = "lostgood.rds"),
+    cost_per_unit,
+    col_name = StockCode) %>% 
+    drop_na() %>% 
+    group_by(month_year, category) %>% 
+    mutate(
+      total_lost = sum(total*Price_Per_Unit)
+    ) %>% 
+    select(month_year, category, total_lost) %>% 
+    ungroup() %>% 
+    unique() %>% 
+    filter(category == "kitchen") %>% 
+    month_year_range(., month_year, "2010-12-01","2011-12-01") %>% 
+   barchart_ggv2(., month_year, total_lost, bar_color = custom_green)+
+    theme_function(
+      title_size = 12,
+      x_label_position = element_text(angle = 45, vjust = 0.5)
+    )+
+    geom_text_function(repel = F, vjust = -0.25, label = comma(total_lost))+
+  labs(
+    title = "Estimate lost for Missing Kitchen Goods From Dec 2010 to Dec 2011"
+  )+
+  scale_y_continuous_function(0, 12000,suffix = k)
+```
+
+```{r}
+merged(
+    read_file(data_base = "lostgood.rds"),
+    cost_per_unit,
+    col_name = StockCode) %>% 
+    drop_na() %>% 
+    group_by(month_year, category) %>% 
+    mutate(
+      total_lost = sum(total*Price_Per_Unit)
+    ) %>% 
+    select(month_year, category, total_lost) %>% 
+    ungroup() %>% 
+    unique() %>% 
+    filter(category == "Misc") %>% 
+    month_year_range(., month_year, "2010-12-01","2011-12-01") %>% 
+   barchart_ggv2(., month_year, total_lost, bar_color = custom_green)+
+    theme_function(
+      title_size = 12,
+      x_label_position = element_text(angle = 45, vjust = 0.5)
+    )+
+    geom_text_function(repel = F, vjust = -0.25, label = comma(total_lost))+
+  labs(
+    title = "Estimate lost for Missing Misc Goods From Dec 2010 to Dec 2011"
+  )+
+  scale_y_continuous_function(0, 12500,suffix = k)
+```
+
+```{r}
+merged(
+    read_file(data_base = "lostgood.rds"),
+    cost_per_unit,
+    col_name = StockCode) %>% 
+    drop_na() %>% 
+    group_by(month_year, category) %>% 
+    mutate(
+      total_lost = sum(total*Price_Per_Unit)
+    ) %>% 
+    select(month_year, category, total_lost) %>% 
+    ungroup() %>% 
+    unique() %>% 
+    filter(category == "house decoration") %>% 
+    month_year_range(., month_year, "2010-12-01","2011-12-01") %>% 
+    barchart_ggv2(., month_year, total_lost, bar_color = custom_green)+
+    theme_function(
+      title_size = 12,
+      x_label_position = element_text(angle = 45, vjust = 0.5)
+    )+
+    geom_text_function(repel = F, vjust = -0.25, label = comma(total_lost))+
+  labs(
+    title = "Estimate lost for Missing House Decoration Goods From Dec 2010 to Dec 2011"
+  )+
+  scale_y_continuous_function(0, 10000,suffix = k)
+```
+
+```{r}
+merged(
+    read_file(data_base = "lostgood.rds"),
+    cost_per_unit,
+    col_name = StockCode) %>% 
+    drop_na() %>% 
+    group_by(month_year, category) %>% 
+    mutate(
+      total_lost = sum(total*Price_Per_Unit)
+    ) %>% 
+    select(month_year, category, total_lost) %>% 
+    ungroup() %>% 
+    unique() %>% 
+    filter(category == "toy") %>% 
+    month_year_range(., month_year, "2010-12-01","2011-12-01") %>% 
+   barchart_ggv2(., month_year, total_lost, bar_color = custom_green)+
+    theme_function(
+      title_size = 12,
+      x_label_position = element_text(angle = 45, vjust = 0.5)
+    )+
+    geom_text_function(repel = F, vjust = -0.25, label = comma(total_lost))+
+  labs(
+    title = "Estimate lost for Missing Toy From Dec 2010 to Dec 2011"
+  )+
+  scale_y_continuous_function(0, 5000,suffix = k)
+```
+
+```{r}
+thrown <- read_file("thrown.rds") %>% 
+  select(StockCode, category, total) %>% 
+  unique()
+
+merged(
+  thrown,
+  cost_per_unit,
+  col_name = StockCode
+) %>% 
+  merged(
+    .,
+    category,
+    col_name = StockCode
+  ) %>% 
+  filter(if_any(everything(), is.na))
+
+# Product Code below dont have Price per unit in record
+```
+
+### Potential Lost from Thrown Goods
+
+```{r}
+merged(
+  thrown,
+  cost_per_unit,
+  col_name = StockCode
+) %>% 
+  merged(
+    .,
+    category,
+    col_name = StockCode
+  ) %>% 
+  drop_na() %>% 
+  mutate(
+    total_lost = paste0("$ ", comma(sum(total*Price_Per_Unit),accuracy = 0.01)),
+    total_thrown_product = paste0(sum(total), " units")
+  ) %>% 
+  select(total_thrown_product, total_lost) %>% 
+  distinct() %>% 
+  t(.) %>% 
+  kbl(caption = "Potential lost from Thrown Goods") %>% 
+  kable_styling()
+
+merged(
+  thrown,
+  cost_per_unit,
+  col_name = StockCode
+) %>% 
+  merged(
+    .,
+    category,
+    col_name = StockCode
+  ) %>% 
+  drop_na() %>% 
+  group_by(category.y) %>% 
+  mutate(
+    total_lost_unit_by_category = comma(sum(total), accuracy = 0.01),
+    total_lost_revenue_by_category = comma(sum(total*Price_Per_Unit), accuracy = 0.01)
+  ) %>% 
+  ungroup() %>% 
+  select(category.y, total_lost_unit_by_category, total_lost_revenue_by_category) %>% 
+  distinct() %>% 
+  t(.) %>% 
+  kbl(caption = "Potential lost from Thrown Goods") %>% 
+  kable_styling()
+```
+
+### Potential Loss from Damaged Goods
+
+```{r}
+merged(
+  read_file("Damaged.rds"),
+  cost_per_unit,
+  col_name = StockCode
+) %>% 
+  merged(
+    .,
+    category,
+    col_name = StockCode
+  ) %>% 
+  select(-CustomerID, -UnitPrice, -Quantity, -InvoiceNo,-time, -category.x, -Description.y, -category.y) %>% 
+  filter(if_any(everything(),is.na))
+ 
+# Product Code below dont have Price per unit in record
+```
+
+```{r}
+
+merged(
+  read_file("Damaged.rds"),
+  cost_per_unit,
+  col_name = StockCode
+) %>% 
+  merged(
+    .,
+    category,
+    col_name = StockCode
+  ) %>% 
+  select(-CustomerID) %>% 
+  drop_na() %>% 
+  group_by(category.y) %>% 
+  mutate(
+    total_damged_unit_by_category = comma(sum(total), accuracy = 0.01),
+    total_damaged_revenue_by_category = comma(sum(total*Price_Per_Unit), accuracy = 0.01)
+  ) %>% 
+  select(category.y, total_damged_unit_by_category, total_damaged_revenue_by_category) %>% 
+  distinct() %>% 
+  t(.) %>% 
+  kbl() %>% 
+  kable_styling()
+```
